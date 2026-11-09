@@ -1,106 +1,116 @@
-import 'package:fsrs/fsrs.dart' as fsrs;
 import '../domain/card.dart';
 import '../domain/rating.dart';
 
 class SchedulerService {
-  final fsrs.Scheduler _scheduler;
+  /// SM-2 inspired scheduler using existing schema fields:
+  /// - stability = interval in days (after review state)
+  /// - difficulty = 0.0..1.0 (0 = easy, 1 = very hard)
+  /// - state: 1=learning, 2=review, 3=relearning
+  Map<String, dynamic> review(
+    Card card,
+    Rating rating, {
+    DateTime? now,
+  }) {
+    final at = (now ?? DateTime.now()).toUtc();
+    var state = card.state;
+    var step = card.step;
+    var stability = card.stability ?? 1.0;
+    var difficulty = card.difficulty ?? 0.5;
+    var reps = card.reps;
+    var lapses = card.lapses;
+    var learningSteps = card.learningSteps;
 
-  SchedulerService({double desiredRetention = 0.9, int maxInterval = 3650})
-      : _scheduler = fsrs.Scheduler(
-          desiredRetention: desiredRetention,
-          maximumInterval: maxInterval,
-        );
+    Duration interval;
+    switch (rating) {
+      case Rating.fail:
+        if (state == 2) lapses += 1;
+        state = 3;
+        step = 0;
+        stability = 1.0;
+        difficulty = (difficulty + 0.15).clamp(0.3, 1.0);
+        interval = const Duration(minutes: 10);
+        learningSteps += 1;
+        break;
 
-  /// Returns the new card state values to persist.
-  Map<String, dynamic> review(Card card, Rating rating,
-      {DateTime? now}) {
-    final reviewDate = (now ?? DateTime.now()).toUtc();
+      case Rating.hard:
+        if (state == 1 || state == 3) {
+          interval = const Duration(minutes: 30);
+          state = 1;
+          step += 1;
+        } else {
+          final days = (stability * 1.2).round().clamp(1, 3650);
+          stability = days.toDouble();
+          interval = Duration(days: days);
+        }
+        difficulty = (difficulty + 0.05).clamp(0.3, 1.0);
+        learningSteps += 1;
+        break;
 
-    final fsrsCard = fsrs.Card(
-      cardId: card.id,
-      state: _stateOf(card.state),
-      step: card.step,
-      stability: card.stability,
-      difficulty: card.difficulty,
-      due: card.due.toUtc(),
-      lastReview: card.lastReview?.toUtc(),
-    );
+      case Rating.good:
+        if (state == 1 || state == 3) {
+          interval = const Duration(hours: 6);
+          state = 2;
+          step = 0;
+          stability = 1.0;
+        } else {
+          final days = (stability * 2.5).round().clamp(1, 3650);
+          stability = days.toDouble();
+          interval = Duration(days: days);
+        }
+        learningSteps += 1;
+        break;
 
-    final (updated, _) = _scheduler.reviewCard(
-      fsrsCard,
-      _ratingOf(rating),
-      reviewDateTime: reviewDate,
-    );
+      case Rating.easy:
+        if (state == 1 || state == 3) {
+          interval = const Duration(days: 4);
+          state = 2;
+          step = 0;
+          stability = 4.0;
+        } else {
+          final days = (stability * 3.5).round().clamp(4, 3650);
+          stability = days.toDouble();
+          interval = Duration(days: days);
+        }
+        difficulty = (difficulty - 0.05).clamp(0.3, 1.0);
+        learningSteps += 1;
+        break;
+    }
 
-    final wasLearning = card.state == 1 || card.state == 3;
-    final isFail = rating == Rating.fail;
-    final wasReview = card.state == 2;
+    reps += 1;
 
     return {
-      'state': _stateToInt(updated.state),
-      'step': updated.step,
-      'stability': updated.stability,
-      'difficulty': updated.difficulty,
-      'due': updated.due.toUtc(),
-      'last_review': updated.lastReview?.toUtc() ?? reviewDate,
-      'reps': card.reps + 1,
-      'lapses': card.lapses + (isFail && wasReview ? 1 : 0),
-      'learning_steps': card.learningSteps + (wasLearning ? 1 : 0),
+      'state': state,
+      'step': step,
+      'stability': stability,
+      'difficulty': difficulty,
+      'due': at.add(interval),
+      'last_review': at,
+      'reps': reps,
+      'lapses': lapses,
+      'learning_steps': learningSteps,
     };
   }
 
-  /// Preview intervals for the 4 rating buttons.
-  /// Returns a map: {Rating: "3 أيام", ...}
   Map<Rating, String> previewIntervals(Card card, {DateTime? now}) {
     final base = (now ?? DateTime.now()).toUtc();
-    final result = <Rating, String>{};
+    final out = <Rating, String>{};
     for (final r in Rating.values) {
       try {
         final values = review(card, r, now: base);
         final due = values['due'] as DateTime;
         final secs = due.difference(base).inSeconds;
-        result[r] = _formatInterval(secs);
+        out[r] = _fmt(secs);
       } catch (_) {
-        result[r] = '—';
+        out[r] = '—';
       }
     }
-    return result;
+    return out;
   }
 
-  static String _formatInterval(int seconds) {
-    final s = seconds < 0 ? 0 : seconds;
-    if (s < 3600) return '${(s ~/ 60).clamp(1, 999)} د';
-    if (s < 86400) return '${(s ~/ 3600).clamp(1, 23)} س';
-    return '${(s ~/ 86400).clamp(1, 9999)} ي';
-  }
-
-  fsrs.State _stateOf(int s) {
-    switch (s) {
-      case 2:
-        return fsrs.State.review;
-      case 3:
-        return fsrs.State.relearning;
-      default:
-        return fsrs.State.learning;
-    }
-  }
-
-  int _stateToInt(fsrs.State s) {
-    if (s == fsrs.State.review) return 2;
-    if (s == fsrs.State.relearning) return 3;
-    return 1;
-  }
-
-  fsrs.Rating _ratingOf(Rating r) {
-    switch (r) {
-      case Rating.fail:
-        return fsrs.Rating.again;
-      case Rating.hard:
-        return fsrs.Rating.hard;
-      case Rating.good:
-        return fsrs.Rating.good;
-      case Rating.easy:
-        return fsrs.Rating.easy;
-    }
+  static String _fmt(int s) {
+    final sec = s < 0 ? 0 : s;
+    if (sec < 3600) return '${(sec ~/ 60).clamp(1, 999)} د';
+    if (sec < 86400) return '${(sec ~/ 3600).clamp(1, 23)} س';
+    return '${(sec ~/ 86400).clamp(1, 9999)} ي';
   }
 }
