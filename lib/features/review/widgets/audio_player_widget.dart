@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart' show ProcessingState;
 import '../../../core/l10n/app_strings.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../services/audio/audio_player_service.dart';
@@ -31,9 +32,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   double _speed = 1.0;
   Duration _pos = Duration.zero;
   Duration _dur = Duration.zero;
-  StreamSubscription? _posSub;
-  StreamSubscription? _durSub;
-  StreamSubscription? _stateSub;
+  StreamSubscription<Duration>? _posSub;
+  StreamSubscription<Duration?>? _durSub;
+  StreamSubscription<PlayerState>? _stateSub;
   bool _isPlaying = false;
 
   @override
@@ -47,13 +48,10 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     });
     _stateSub = _player.playerStateStream.listen((s) {
       if (!mounted) return;
-      final playing = s.playing &&
-          s.processingState != ProcessingState.completed;
+      final playing =
+          s.playing && s.processingState != ProcessingState.completed;
       setState(() {
         _isPlaying = playing;
-        if (s.processingState == ProcessingState.completed) {
-          _isPlaying = false;
-        }
       });
     });
   }
@@ -75,6 +73,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     });
     try {
       final file = await widget.onPrepare();
+      if (!mounted) return;
       if (file == null) {
         setState(() {
           _loading = false;
@@ -86,7 +85,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       final peaks = await WaveformService.extractPeaks(file);
       if (!mounted) return;
       setState(() {
-        _peaks = peaks ?? [];
+        _peaks = peaks ?? const <double>[];
         _prepared = true;
         _loading = false;
       });
@@ -164,9 +163,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  _error != null
-                      ? _error!
-                      : '${_fmt(_pos)} / ${_fmt(_dur)}',
+                  _error != null ? _error! : '${_fmt(_pos)} / ${_fmt(_dur)}',
                   style: TextStyle(
                     color: _error != null ? AppColors.fail : AppColors.muted,
                     fontSize: 12,
@@ -198,7 +195,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                 ? 0.0
                 : (_pos.inMilliseconds / _dur.inMilliseconds)
                     .clamp(0.0, 1.0),
-            onSeek: () {},
+            onSeek: _seek,
             height: 50,
           ),
           if (!_prepared && _error == null)
@@ -215,7 +212,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   }
 
   static String _fmt(Duration d) {
-    final s = d.inSeconds;
-    return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
+    final secs = d.inSeconds;
+    return '${secs ~/ 60}:${(secs % 60).toString().padLeft(2, '0')}';
   }
 }
