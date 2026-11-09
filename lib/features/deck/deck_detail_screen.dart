@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide Card;
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_colors.dart';
 import '../../data/repositories/card_repository.dart';
@@ -7,7 +7,7 @@ import '../../domain/deck.dart';
 import '../../shared/widgets/empty_state.dart';
 import '../../shared/widgets/stat_card.dart';
 import '../card/card_editor_screen.dart';
-import '../review/review_screen.dart';
+import '../review/review_setup_screen.dart';
 import 'edit_deck_screen.dart';
 import 'widgets/grade_chart.dart';
 
@@ -22,9 +22,9 @@ class DeckDetailScreen extends StatefulWidget {
 
 class _DeckDetailScreenState extends State<DeckDetailScreen> {
   final _cards = CardRepository();
-  List<Card> _list = [];
-  List<Card> _due = [];
-  Map<String, int> _grades = {};
+  List<Card> _list = <Card>[];
+  List<Card> _due = <Card>[];
+  Map<String, int> _grades = <String, int>{};
   bool _loading = true;
 
   @override
@@ -39,7 +39,7 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
       final list = await _cards.list(deckId: widget.deck.id);
       final due = await _cards.due(deckId: widget.deck.id);
       final grades = <String, int>{};
-      for (final c in list) {
+      for (final Card c in list) {
         grades[c.grade] = (grades[c.grade] ?? 0) + 1;
       }
       if (!mounted) return;
@@ -90,11 +90,16 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ReviewScreen(deck: widget.deck, strings: widget.strings),
+        builder: (_) => ReviewSetupScreen(
+          strings: widget.strings,
+          preselectedDeckId: widget.deck.id,
+        ),
       ),
     );
     _load();
   }
+
+  int _newCount() => _list.where((Card c) => c.reps == 0).length;
 
   @override
   Widget build(BuildContext context) {
@@ -103,8 +108,8 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
       appBar: AppBar(
         title: Text(widget.deck.name),
         actions: [
-          IconButton(icon: const Icon(Icons.edit), onPressed: _editDeck, tooltip: s.editDeck),
-          IconButton(icon: const Icon(Icons.add), onPressed: _addCard, tooltip: s.newCard),
+          IconButton(icon: const Icon(Icons.edit), onPressed: _editDeck),
+          IconButton(icon: const Icon(Icons.add), onPressed: _addCard),
         ],
       ),
       body: _loading
@@ -123,12 +128,14 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
                     childAspectRatio: 1.1,
                     children: [
                       StatCard(label: s.cards, value: '${_list.length}'),
-                      StatCard(label: s.due, value: '${_due.length}', accent: AppColors.fail),
                       StatCard(
-                        label: s.statNew,
-                        value: '${_list.where((c) => c.reps == 0).length}',
-                        accent: AppColors.good,
-                      ),
+                          label: s.due,
+                          value: '${_due.length}',
+                          accent: AppColors.fail),
+                      StatCard(
+                          label: s.statNew,
+                          value: '${_newCount()}',
+                          accent: AppColors.good),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -145,7 +152,9 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
                           padding: const EdgeInsets.all(16),
                           child: Text(
                             s.gradeDistribution,
-                            style: const TextStyle(color: AppColors.text, fontWeight: FontWeight.bold),
+                            style: const TextStyle(
+                                color: AppColors.text,
+                                fontWeight: FontWeight.bold),
                           ),
                         ),
                         GradeChart(grades: _grades),
@@ -156,16 +165,14 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      Text(
-                        s.cards,
-                        style: const TextStyle(
-                          color: AppColors.text,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                      Text(s.cards,
+                          style: const TextStyle(
+                              color: AppColors.text,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold)),
                       const Spacer(),
-                      Text('${_list.length}', style: const TextStyle(color: AppColors.muted)),
+                      Text('${_list.length}',
+                          style: const TextStyle(color: AppColors.muted)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -173,10 +180,11 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
                     EmptyState(
                       icon: Icons.credit_card,
                       title: s.noCardsYet,
-                      action: FilledButton(onPressed: _addCard, child: Text(s.newCard)),
+                      action: FilledButton(
+                          onPressed: _addCard, child: Text(s.newCard)),
                     )
                   else
-                    ..._list.map((c) => Padding(
+                    ..._list.map((Card c) => Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: Container(
                             decoration: BoxDecoration(
@@ -185,18 +193,23 @@ class _DeckDetailScreenState extends State<DeckDetailScreen> {
                               border: Border.all(color: AppColors.border),
                             ),
                             child: ListTile(
-                              title: Text(c.front, style: const TextStyle(color: AppColors.text)),
-                              subtitle: Text(c.back, style: const TextStyle(color: AppColors.muted)),
+                              title: Text(c.front,
+                                  style:
+                                      const TextStyle(color: AppColors.text)),
+                              subtitle: Text(c.back,
+                                  style: const TextStyle(
+                                      color: AppColors.muted)),
                               trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
                                   color: AppColors.surface,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
-                                child: Text(
-                                  c.grade,
-                                  style: const TextStyle(color: AppColors.muted, fontSize: 11),
-                                ),
+                                child: Text(c.grade,
+                                    style: const TextStyle(
+                                        color: AppColors.muted,
+                                        fontSize: 11)),
                               ),
                               onTap: () => _editCard(c),
                             ),
